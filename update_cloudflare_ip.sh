@@ -1,34 +1,33 @@
 #!/bin/bash
 
-# ⚙️ CONFIGURACIÓN
-ZONE_ID="TU_ZONE_ID"
-RECORD_ID="TU_RECORD_ID"
-API_TOKEN="TU_API_TOKEN"
-RECORD_NAME="socialdevs.site"
-TTL=120
-PROXY=false
+# === CONFIGURACIÓN ===
+CF_API_TOKEN="tu_token_api_aquí"
+ZONE_NAME="socialdevs.site"
+RECORD_NAME="home.socialdevs.site"
 
-# Obtener IP pública actual
-IP=$(curl -s https://api.ipify.org)
+# === OBTENER IP ACTUAL ===
+CURRENT_IP=$(curl -s https://ifconfig.me)
 
-# Obtener IP actual del DNS
-CURRENT_IP=$(dig +short $RECORD_NAME)
+# === OBTENER ZONE ID ===
+ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$ZONE_NAME" \
+  -H "Authorization: Bearer $CF_API_TOKEN" \
+  -H "Content-Type: application/json" | jq -r '.result[0].id')
 
-# Si cambió la IP, actualizamos en Cloudflare
-if [[ "$IP" != "$CURRENT_IP" ]]; then
-  echo "➡️ IP ha cambiado: $CURRENT_IP → $IP. Actualizando..."
+# === OBTENER RECORD ID E IP ACTUAL EN DNS ===
+RECORD_RESPONSE=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?name=$RECORD_NAME" \
+  -H "Authorization: Bearer $CF_API_TOKEN" \
+  -H "Content-Type: application/json")
 
-  RESPONSE=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
-     -H "Authorization: Bearer $API_TOKEN" \
-     -H "Content-Type: application/json" \
-     --data "{\"type\":\"A\",\"name\":\"$RECORD_NAME\",\"content\":\"$IP\",\"ttl\":$TTL,\"proxied\":$PROXY}")
+RECORD_ID=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].id')
+DNS_IP=$(echo "$RECORD_RESPONSE" | jq -r '.result[0].content')
 
-  if echo "$RESPONSE" | grep -q '"success":true'; then
-    echo "✅ IP actualizada exitosamente en Cloudflare: $IP"
-  else
-    echo "❌ Error al actualizar IP:"
-    echo "$RESPONSE"
-  fi
+# === ACTUALIZAR SOLO SI CAMBIÓ LA IP ===
+if [ "$CURRENT_IP" != "$DNS_IP" ]; then
+  echo "Actualizando IP en Cloudflare: $DNS_IP → $CURRENT_IP"
+  curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
+    -H "Authorization: Bearer $CF_API_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data '{"type":"A","name":"'"$RECORD_NAME"'","content":"'"$CURRENT_IP"'","ttl":1,"proxied":true}' > /dev/null
 else
-  echo "🟢 IP no ha cambiado: $IP"
+  echo "IP sin cambios: $CURRENT_IP"
 fi
