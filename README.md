@@ -35,6 +35,8 @@ sudo chmod 644 /var/log/cloudflare_ddns.log
 
 sudo bash -c '/usr/local/bin/update_cloudflare_ip.sh >> /var/log/cloudflare_ddns.log 2>&1'
 sudo tail -n 20 /var/log/cloudflare_ddns.log
+sudo tail -f /var/log/cloudflare_ddns.log
+
 
 
 */5 * * * * bash -c '/usr/local/bin/update_cloudflare_ip.sh >> /var/log/cloudflare_ddns.log 2>&1'
