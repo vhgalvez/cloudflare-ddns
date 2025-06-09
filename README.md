@@ -6,15 +6,17 @@ Este sistema actualiza automáticamente la IP pública de un registro A en Cloud
 
 ## 📁 Estructura profesional del sistema
 
-- `/usr/local/bin/update_cloudflare_ip.sh` → Script principal
-- `/etc/cloudflare-ddns/.env` → Archivo de configuración (.env con token, zona y subdominio)
-- `/var/log/cloudflare_ddns.log` → Log persistente
-- `/etc/systemd/system/cloudflare-ddns.service` → Servicio systemd
-- `/etc/systemd/system/cloudflare-ddns.timer` → Temporizador systemd
+```
+/usr/local/bin/update_cloudflare_ip.sh        # Script principal
+/etc/cloudflare-ddns/.env                     # Archivo de configuración
+/var/log/cloudflare_ddns.log                  # Log persistente
+/etc/systemd/system/cloudflare-ddns.service   # Servicio systemd
+/etc/systemd/system/cloudflare-ddns.timer     # Temporizador systemd
+```
 
-✅ **El archivo `.env` debe ir exactamente en**: `/etc/cloudflare-ddns/.env`  
-El script `update_cloudflare_ip.sh` lo carga directamente desde ahí.  
-**No se debe mover ni renombrar.**
+> ✅ **El archivo `.env` debe ir exactamente en:** `/etc/cloudflare-ddns/.env`
+> El script `update_cloudflare_ip.sh` lo carga desde ahí.
+> **No se debe mover ni renombrar.**
 
 ---
 
@@ -28,12 +30,16 @@ sudo dnf install curl jq -y
 sudo apt install curl jq -y
 ```
 
-## 📝 Paso 2: Instalar el script principal
+---
+
+## 🗘️ Paso 2: Instalar el script principal
 
 ```bash
 sudo cp update_cloudflare_ip.sh /usr/local/bin/update_cloudflare_ip.sh
 sudo chmod 755 /usr/local/bin/update_cloudflare_ip.sh
 ```
+
+---
 
 ## 🔐 Paso 3: Crear el archivo .env seguro
 
@@ -50,12 +56,14 @@ ZONE_NAME=socialdevs.site
 RECORD_NAME=home.socialdevs.site
 ```
 
-Asegura los permisos del archivo:
+Asegura los permisos:
 
 ```bash
 sudo chmod 600 /etc/cloudflare-ddns/.env
 sudo chown root:root /etc/cloudflare-ddns/.env
 ```
+
+---
 
 ## 🗒️ Paso 4: Crear archivo de log
 
@@ -65,9 +73,11 @@ sudo chmod 644 /var/log/cloudflare_ddns.log
 sudo chown root:root /var/log/cloudflare_ddns.log
 ```
 
+---
+
 ## 🛠️ Paso 5: Crear archivos systemd
 
-1️⃣ `/etc/systemd/system/cloudflare-ddns.service`
+### 1. Servicio: `/etc/systemd/system/cloudflare-ddns.service`
 
 ```ini
 [Unit]
@@ -82,7 +92,7 @@ StandardOutput=append:/var/log/cloudflare_ddns.log
 StandardError=append:/var/log/cloudflare_ddns.log
 ```
 
-2️⃣ `/etc/systemd/system/cloudflare-ddns.timer`
+### 2. Temporizador: `/etc/systemd/system/cloudflare-ddns.timer`
 
 ```ini
 [Unit]
@@ -97,6 +107,8 @@ Unit=cloudflare-ddns.service
 WantedBy=timers.target
 ```
 
+---
+
 ## 🚀 Paso 6: Activar el sistema
 
 ```bash
@@ -105,46 +117,51 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now cloudflare-ddns.timer
 ```
 
+---
+
 ## 🔎 Paso 7: Verificación y monitoreo
 
-Estado del temporizador y del servicio:
+### Estado del temporizador y servicio
 
 ```bash
 systemctl status cloudflare-ddns.timer
 systemctl status cloudflare-ddns.service
 ```
 
-Próximas ejecuciones programadas:
+### Próximas ejecuciones programadas
 
 ```bash
 systemctl list-timers --all | grep cloudflare
 ```
 
-Últimos logs generados por el script:
+### Últimos logs generados
 
 ```bash
 sudo tail -n 20 /var/log/cloudflare_ddns.log
 ```
 
-Ver historial completo desde systemd:
+### Historial completo desde systemd
 
 ```bash
 journalctl -u cloudflare-ddns.service
 ```
 
-## 🔑 Cómo obtener tu API Token, Zone ID y Record ID
+---
 
-1️⃣ Crear token personalizado:  
-🔗 [https://dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
+## 🔑 Obtener tu API Token, Zone ID y Record ID
 
-Permisos mínimos:
+### 1. Crear token personalizado
 
-- `Zone.Zone` → Read
-- `Zone.DNS` → Edit
+[https://dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens)
 
-Scope: Solo la zona correspondiente
+Permisos necesarios:
 
-2️⃣ Obtener Zone ID
+* `Zone.Zone` → Read
+* `Zone.DNS` → Edit
+
+> Scope: solo la zona correspondiente
+
+### 2. Obtener Zone ID
 
 ```bash
 curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=TU_DOMINIO" \
@@ -152,7 +169,7 @@ curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=TU_DOMINIO" \
   -H "Content-Type: application/json" | jq -r '.result[0].id'
 ```
 
-3️⃣ Obtener Record ID
+### 3. Obtener Record ID
 
 ```bash
 curl -s -X GET "https://api.cloudflare.com/client/v4/zones/TU_ZONE_ID/dns_records?name=SUBDOMINIO.TU_DOMINIO" \
@@ -160,17 +177,63 @@ curl -s -X GET "https://api.cloudflare.com/client/v4/zones/TU_ZONE_ID/dns_record
   -H "Content-Type: application/json" | jq -r '.result[0].id'
 ```
 
-## 🔄 Instalación asistida con install.sh (recomendado)
+---
 
-1️⃣ Ejecutar el instalador:
+## 🔄 Instalación asistida con install.sh (recomendado)
 
 ```bash
 chmod +x install.sh
 sudo ./install.sh
 ```
 
-2️⃣ Luego edita el archivo .env generado automáticamente:
+Luego edita el archivo `.env` generado:
 
 ```bash
 sudo nano /etc/cloudflare-ddns/.env
 ```
+
+---
+
+## 🌐 Resumen del proyecto
+
+Actualiza automáticamente tu dirección IP pública en Cloudflare. Ideal para redes con IP dinámica (conexiones domésticas o VPS sin IP fija).
+
+### ✅ Características
+
+* Actualización automática si cambia la IP.
+* Systemd timer cada 5 minutos.
+* Registra logs en `/var/log/cloudflare_ddns.log`.
+* Configuración aislada y segura en `.env`.
+
+---
+
+## 📄 Desinstalación
+
+```bash
+chmod +x uninstall.sh
+sudo ./uninstall.sh
+```
+
+> ❌ Esto elimina solo archivos del proyecto. No afecta otros servicios del sistema.
+
+---
+
+## 🔒 Seguridad
+
+* El archivo `.env` contiene credenciales sensibles.
+* Se almacena en `/etc/cloudflare-ddns/` con permisos `600`.
+* Nunca se sube a Git ni se incluye en `install.sh`.
+
+---
+
+## 🧠 Créditos
+
+* Desarrollado por: **Victor Galvez**
+* Licencia: **MIT**
+
+---
+
+## ❓ Soporte
+
+* Si encuentras errores o tienes mejoras, abre un issue o pull request en:
+  [https://github.com/vhgalvez/cloudflare-ddns](https://github.com/vhgalvez/cloudflare-ddns)
