@@ -1,0 +1,10 @@
+[Unit]
+Description=Cloudflare DDNS actualizador de IP pública
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/update_cloudflare_ip.sh
+StandardOutput=append:/var/log/cloudflare_ddns.log
+StandardError=append:/var/log/cloudflare_ddns.log

@@ -1,16 +1,24 @@
 #!/bin/bash
 
-# === CONFIGURACIÓN ===
-CF_API_TOKEN="tu_token_api_aquí"
-ZONE_NAME="socialdevs.site"
-RECORD_NAME="home.socialdevs.site"
-
-# === FECHA Y HORA ACTUAL ===
+# === CARGAR VARIABLES DESDE .env ===
+ENV_FILE="/etc/cloudflare-ddns/.env"
 NOW=$(date "+%Y-%m-%d %H:%M:%S")
+
+if [ -f "$ENV_FILE" ]; then
+  export $(grep -v '^#' "$ENV_FILE" | xargs)
+else
+  echo "[$NOW] ❌ Error: No se encontró el archivo de configuración $ENV_FILE"
+  exit 1
+fi
+
+# === VALIDACIÓN DE VARIABLES ===
+if [[ -z "$CF_API_TOKEN" || -z "$ZONE_NAME" || -z "$RECORD_NAME" ]]; then
+  echo "[$NOW] ❌ Error: Faltan variables requeridas en $ENV_FILE"
+  exit 1
+fi
 
 # === OBTENER IP PÚBLICA ACTUAL ===
 CURRENT_IP=$(curl -s https://ifconfig.me)
-
 if [[ -z "$CURRENT_IP" ]]; then
   echo "[$NOW] ❌ Error: No se pudo obtener la IP pública."
   exit 1
