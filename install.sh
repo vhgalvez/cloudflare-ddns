@@ -1,5 +1,6 @@
 #!/bin/bash
-
+# install.sh
+# Instala y configura un servicio de actualización de IP pública en Cloudflare
 set -e
 
 echo "📦 Instalando Cloudflare DDNS..."
@@ -36,19 +37,19 @@ CF_API_TOKEN=tu_token_api_aquí
 ZONE_NAME=dominio.com
 RECORD_NAME=subdominio.dominio.com
 EOF
-  echo "⚠️  Edita el archivo $ENV_FILE con tus datos reales."
+  echo "⚠️  Recuerda editar $ENV_FILE con tu token y dominio reales."
 fi
 sudo chmod 600 "$ENV_FILE"
 sudo chown root:root "$ENV_FILE"
 
 # === Crear archivo de log ===
-echo "📝 Preparando archivo de log en $LOG_FILE..."
+echo "📝 Preparando log en $LOG_FILE..."
 sudo touch "$LOG_FILE"
 sudo chmod 644 "$LOG_FILE"
 sudo chown root:root "$LOG_FILE"
 
 # === Crear servicio systemd ===
-echo "⚙️ Creando archivo de servicio en $SERVICE_FILE..."
+echo "⚙️ Creando systemd service en $SERVICE_FILE..."
 sudo bash -c "cat > $SERVICE_FILE" <<EOF
 [Unit]
 Description=Cloudflare DDNS actualizador de IP pública
@@ -63,7 +64,7 @@ StandardError=append:$LOG_FILE
 EOF
 
 # === Crear temporizador ===
-echo "⏱️  Creando archivo de temporizador en $TIMER_FILE..."
+echo "⏱️  Creando temporizador systemd en $TIMER_FILE..."
 sudo bash -c "cat > $TIMER_FILE" <<EOF
 [Unit]
 Description=Ejecutar Cloudflare DDNS cada 5 minutos
@@ -77,12 +78,12 @@ Unit=cloudflare-ddns.service
 WantedBy=timers.target
 EOF
 
-# === Activar servicio ===
-echo "🚀 Activando servicio y temporizador..."
+# === Activar y recargar systemd ===
+echo "🚀 Activando systemd..."
 sudo systemctl daemon-reexec
 sudo systemctl daemon-reload
 sudo systemctl enable --now cloudflare-ddns.timer
 
 echo "✅ Instalación completada."
-echo "📄 Edita $ENV_FILE con tu API token y dominio."
-echo "📡 Verifica estad
+echo "📄 Edita $ENV_FILE con tus credenciales de Cloudflare."
+echo "📡 Verifica el estado con: systemctl status cloudflare-ddns.timer"

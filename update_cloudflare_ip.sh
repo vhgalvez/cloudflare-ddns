@@ -1,4 +1,5 @@
 #!/bin/bash
+# update_cloudflare_ip.sh
 
 # === CARGAR VARIABLES DESDE .env ===
 ENV_FILE="/etc/cloudflare-ddns/.env"

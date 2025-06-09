@@ -1,0 +1,10 @@
+[Unit]
+Description=Ejecutar Cloudflare DDNS cada 5 minutos
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Unit=cloudflare-ddns.service
+
+[Install]
+WantedBy=timers.target
