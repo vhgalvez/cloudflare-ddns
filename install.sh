@@ -1,60 +1,132 @@
 #!/bin/bash
-# install.sh
-# Instala y configura un servicio de actualización de IP pública en Cloudflare
 
-set -e
+# Cloudflare DDNS - Actualización automática de IP pública
+# Autor: @vhgalvez (mejorado con programación funcional)
+# Fecha: 2025-06-15
 
-echo "📦 Instalando dependencias necesarias..."
-sudo dnf install -y curl jq > /dev/null
+# ===== CONFIGURACIÓN DE SEGURIDAD Y LOGGING =====
+set -euo pipefail
+IFS=$'\n\t'
 
-# === Variables ===
-SCRIPT_SRC="update_cloudflare_ip.sh"
-SCRIPT_DEST="/usr/local/bin/update_cloudflare_ip.sh"
-ENV_DIR="/etc/cloudflare-ddns"
-ENV_FILE="$ENV_DIR/.env"
-LOG_FILE="/var/log/cloudflare_ddns.log"
-SERVICE_FILE="/etc/systemd/system/cloudflare-ddns.service"
-TIMER_FILE="/etc/systemd/system/cloudflare-ddns.timer"
+readonly ENV_FILE="/etc/cloudflare-ddns/.env"
+readonly LOG_FILE="/var/log/cloudflare-ddns.log"
+readonly LOG_TAG="cloudflare-ddns"
 
-# === Validación previa ===
-echo "🔍 Verificando archivos necesarios..."
-[[ ! -f "$SCRIPT_SRC" ]] && echo "❌ Error: $SCRIPT_SRC no encontrado." && exit 1
-[[ ! -f "cloudflare-ddns.service" ]] && echo "❌ Error: cloudflare-ddns.service no encontrado." && exit 1
-[[ ! -f "cloudflare-ddns.timer" ]] && echo "❌ Error: cloudflare-ddns.timer no encontrado." && exit 1
+# === Función de log: escribe en journal + archivo ===
+log() {
+    local now
+    now=$(date "+%Y-%m-%d %H:%M:%S")
+    local msg="[$now] [DDNS] $1"
+    echo "$msg" | tee -a "$LOG_FILE"
+    logger -t "$LOG_TAG" "$msg"
+}
 
-# === Copiar script principal ===
-echo "🚀 Copiando script a $SCRIPT_DEST..."
-sudo cp "$SCRIPT_SRC" "$SCRIPT_DEST"
-sudo chmod 755 "$SCRIPT_DEST"
+# === Función para manejar errores fatales ===
+handle_error() {
+    local msg="$1"
+    log "❌ ERROR: $msg"
+    dmesg | tail -n 20 >> "$LOG_FILE"
+    exit 1
+}
 
-# === Crear carpeta de configuración ===
-echo "📁 Asegurando directorio de configuración $ENV_DIR..."
-sudo mkdir -p "$ENV_DIR"
+# === Cargar configuración desde archivo .env ===
+load_env() {
+    if [[ ! -f "$ENV_FILE" ]]; then
+        handle_error "Archivo de configuración no encontrado: $ENV_FILE"
+    fi
 
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo "📝 Creando archivo de configuración vacío en $ENV_FILE (recuerda completarlo)..."
-  sudo touch "$ENV_FILE"
-  sudo chmod 600 "$ENV_FILE"
-  sudo chown root:root "$ENV_FILE"
-fi
+    export $(grep -v '^#' "$ENV_FILE" | xargs -d '\n') || true
 
-# === Crear archivo de log ===
-echo "📄 Asegurando archivo de log $LOG_FILE..."
-sudo touch "$LOG_FILE"
-sudo chmod 644 "$LOG_FILE"
-sudo chown root:root "$LOG_FILE"
+    if [[ -z "${CF_API_TOKEN:-}" || -z "${ZONE_NAME:-}" || -z "${RECORD_NAME:-}" ]]; then
+        handle_error "Variables faltantes: CF_API_TOKEN, ZONE_NAME o RECORD_NAME"
+    fi
+}
 
-# === Copiar archivos systemd ===
-echo "⚙️ Instalando archivos de servicio..."
-sudo cp cloudflare-ddns.service "$SERVICE_FILE"
-sudo cp cloudflare-ddns.timer "$TIMER_FILE"
+# === Obtener la IP pública actual del servidor ===
+get_current_ip() {
+    local ip
+    ip=$(curl -s https://ifconfig.me || true)
 
-# === Activar systemd ===
-echo "🔄 Recargando systemd y activando el timer..."
-sudo systemctl daemon-reexec
-sudo systemctl daemon-reload
-sudo systemctl enable --now cloudflare-ddns.timer
+    if [[ -z "$ip" ]]; then
+        handle_error "No se pudo obtener la IP pública (falló ifconfig.me)"
+    fi
 
-echo "✅ Instalación completa. Puedes revisar el estado con:"
-echo "   sudo systemctl status cloudflare-ddns.timer"
-echo "   sudo tail -f /var/log/cloudflare_ddns.log"
+    log "🌐 IP pública detectada: $ip"
+    echo "$ip"
+}
+
+# === Obtener Zone ID de Cloudflare ===
+get_zone_id() {
+    local id
+    id=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$ZONE_NAME" \
+        -H "Authorization: Bearer $CF_API_TOKEN" \
+        -H "Content-Type: application/json" | jq -r '.result[0].id')
+
+    if [[ -z "$id" || "$id" == "null" ]]; then
+        handle_error "No se pudo obtener el Zone ID de $ZONE_NAME"
+    fi
+
+    log "🔎 Zone ID obtenido: $id"
+    echo "$id"
+}
+
+# === Obtener Record ID e IP actual del DNS ===
+get_record_info() {
+    local zone_id="$1"
+    local response record_id dns_ip
+
+    response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?name=$RECORD_NAME" \
+        -H "Authorization: Bearer $CF_API_TOKEN" \
+        -H "Content-Type: application/json")
+
+    record_id=$(echo "$response" | jq -r '.result[0].id')
+    dns_ip=$(echo "$response" | jq -r '.result[0].content')
+
+    if [[ -z "$record_id" || "$record_id" == "null" ]]; then
+        handle_error "Registro DNS $RECORD_NAME no encontrado en zona $ZONE_NAME"
+    fi
+
+    log "📡 IP actual en DNS: $dns_ip"
+    echo "$record_id|$dns_ip"
+}
+
+# === Actualizar registro A en Cloudflare ===
+update_dns_record() {
+    local record_id="$1"
+    local new_ip="$2"
+
+    log "🔁 Actualizando registro A a nueva IP: $new_ip..."
+
+    curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$record_id" \
+        -H "Authorization: Bearer $CF_API_TOKEN" \
+        -H "Content-Type: application/json" \
+        --data '{"type":"A","name":"'"$RECORD_NAME"'","content":"'"$new_ip"'","ttl":1,"proxied":true}' > /dev/null
+
+    log "✅ IP actualizada correctamente en Cloudflare."
+}
+
+# === Función principal ===
+main() {
+    log "🚀 Iniciando Cloudflare DDNS..."
+
+    load_env
+
+    local current_ip zone_id record_info record_id dns_ip
+    current_ip=$(get_current_ip)
+    zone_id=$(get_zone_id)
+    record_info=$(get_record_info "$zone_id")
+    record_id=$(echo "$record_info" | cut -d'|' -f1)
+    dns_ip=$(echo "$record_info" | cut -d'|' -f2)
+
+    if [[ "$current_ip" != "$dns_ip" ]]; then
+        update_dns_record "$record_id" "$current_ip"
+    else
+        log "⚠️  IP sin cambios: $current_ip"
+    fi
+
+    log "✅ Proceso terminado correctamente."
+}
+
+# === Ejecutar ===
+main
+exit 0
