@@ -4,7 +4,6 @@
 # Autor: @vhgalvez (mejorado con programación funcional)
 # Fecha: 2025-06-15
 
-# ===== CONFIGURACIÓN DE SEGURIDAD Y LOGGING =====
 set -euo pipefail
 IFS=$'\n\t'
 
@@ -21,7 +20,7 @@ log() {
     logger -t "$LOG_TAG" "$msg"
 }
 
-# === Función para manejar errores fatales ===
+# === Función para manejar errores ===
 handle_error() {
     local msg="$1"
     log "❌ ERROR: $msg"
@@ -29,13 +28,19 @@ handle_error() {
     exit 1
 }
 
-# === Cargar configuración desde archivo .env ===
+# === Cargar variables desde el archivo .env ===
 load_env() {
     if [[ ! -f "$ENV_FILE" ]]; then
         handle_error "Archivo de configuración no encontrado: $ENV_FILE"
     fi
 
-    export $(grep -v '^#' "$ENV_FILE" | xargs -d '\n') || true
+    set -a
+    source "$ENV_FILE"
+    set +a
+
+    [[ -z "${CF_API_TOKEN:-}" ]] && log "⚠️ Variable CF_API_TOKEN vacía o no definida"
+    [[ -z "${ZONE_NAME:-}" ]]     && log "⚠️ Variable ZONE_NAME vacía o no definida"
+    [[ -z "${RECORD_NAME:-}" ]]   && log "⚠️ Variable RECORD_NAME vacía o no definida"
 
     if [[ -z "${CF_API_TOKEN:-}" || -z "${ZONE_NAME:-}" || -z "${RECORD_NAME:-}" ]]; then
         handle_error "Variables faltantes: CF_API_TOKEN, ZONE_NAME o RECORD_NAME"
@@ -63,14 +68,14 @@ get_zone_id() {
         -H "Content-Type: application/json" | jq -r '.result[0].id')
 
     if [[ -z "$id" || "$id" == "null" ]]; then
-        handle_error "No se pudo obtener el Zone ID de $ZONE_NAME"
+        handle_error "No se pudo obtener el Zone ID para $ZONE_NAME"
     fi
 
     log "🔎 Zone ID obtenido: $id"
     echo "$id"
 }
 
-# === Obtener Record ID e IP actual del DNS ===
+# === Obtener Record ID e IP DNS actual ===
 get_record_info() {
     local zone_id="$1"
     local response record_id dns_ip
@@ -90,7 +95,7 @@ get_record_info() {
     echo "$record_id|$dns_ip"
 }
 
-# === Actualizar registro A en Cloudflare ===
+# === Actualizar el registro DNS si es necesario ===
 update_dns_record() {
     local record_id="$1"
     local new_ip="$2"
@@ -127,6 +132,5 @@ main() {
     log "✅ Proceso terminado correctamente."
 }
 
-# === Ejecutar ===
 main
 exit 0
