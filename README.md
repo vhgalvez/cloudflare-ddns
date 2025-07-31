@@ -140,6 +140,13 @@ systemctl list-timers --all | grep cloudflare
 sudo tail -n 20 /var/log/cloudflare_ddns.log
 ```
 
+### Últimos 50 logs desde systemd
+
+```bash
+journalctl -u cloudflare-ddns.service -n 50 --no-pager
+```
+
+
 ### Historial completo desde systemd
 
 ```bash
@@ -215,6 +222,20 @@ sudo ./uninstall.sh
 ```
 
 > ❌ Esto elimina solo archivos del proyecto. No afecta otros servicios del sistema.
+
+---
+
+## ❌ Desinstalación manual
+
+```bash
+sudo systemctl stop cloudflare-ddns.service
+sudo systemctl disable --now cloudflare-ddns.timer
+sudo rm /etc/systemd/system/cloudflare-ddns.{service,timer}
+sudo rm /usr/local/bin/update_cloudflare_ip.sh
+sudo rm -rf /etc/cloudflare-ddns
+sudo rm /var/log/cloudflare-ddns.log
+sudo systemctl daemon-reload
+```
 
 ---
 

@@ -22,8 +22,13 @@ log() {
 
 # === Instalación de dependencias ===
 install_dependencies() {
-    log "📦 Instalando dependencias necesarias..."
-    sudo dnf install -y curl jq > /dev/null
+    log "📦 Verificando dependencias necesarias..."
+    for cmd in curl jq systemctl; do
+        if ! command -v "$cmd" &>/dev/null; then
+            log "📥 Instalando $cmd..."
+            sudo dnf install -y "$cmd" > /dev/null
+        fi
+    done
 }
 
 # === Validar archivos fuente ===
@@ -34,7 +39,7 @@ validate_sources() {
     [[ ! -f "cloudflare-ddns.timer" ]] && log "❌ Error: cloudflare-ddns.timer no encontrado." && exit 1
 }
 
-# === Copiar script ===
+# === Copiar script principal ===
 install_script() {
     log "🚀 Copiando script a $SCRIPT_DEST..."
     sudo cp "$SCRIPT_SRC" "$SCRIPT_DEST"
@@ -47,8 +52,12 @@ prepare_env() {
     log "📁 Asegurando directorio de configuración en $ENV_DIR..."
     sudo mkdir -p "$ENV_DIR"
     if [[ ! -f "$ENV_FILE" ]]; then
-        log "📝 Creando archivo .env vacío en $ENV_FILE (recuerda editarlo)..."
-        sudo touch "$ENV_FILE"
+        log "📝 Creando archivo .env base en $ENV_FILE (recuerda editarlo)..."
+        sudo tee "$ENV_FILE" > /dev/null <<EOF
+CF_API_TOKEN=
+ZONE_NAME=socialdevs.site
+RECORD_NAMES=socialdevs.site,public.socialdevs.site
+EOF
         sudo chmod 600 "$ENV_FILE"
         sudo chown root:root "$ENV_FILE"
     fi
@@ -66,7 +75,12 @@ prepare_log_file() {
 install_systemd_units() {
     log "⚙️ Instalando unidades systemd..."
     sudo cp cloudflare-ddns.service "$SERVICE_FILE"
+    sudo chmod 644 "$SERVICE_FILE"
+    sudo chown root:root "$SERVICE_FILE"
+
     sudo cp cloudflare-ddns.timer "$TIMER_FILE"
+    sudo chmod 644 "$TIMER_FILE"
+    sudo chown root:root "$TIMER_FILE"
 }
 
 # === Activar y recargar systemd ===
@@ -87,11 +101,16 @@ main() {
     install_systemd_units
     enable_service
 
-    log "✅ Instalación completa."
+    log "✅ Instalación completada con éxito."
     echo
-    echo "🧪 Verifica el estado con:"
+    echo "🧩 Edita el archivo .env con tus credenciales:"
+    echo "   sudo nano $ENV_FILE"
+    echo
+    echo "🧪 Verifica el estado del timer con:"
     echo "   sudo systemctl status cloudflare-ddns.timer"
-    echo "   sudo journalctl -t cloudflare-ddns -n 50 --no-pager"
+    echo
+    echo "📊 Consulta logs del servicio con:"
+    echo "   sudo journalctl -u cloudflare-ddns.service -n 50 --no-pager"
     echo "   sudo tail -f $LOG_FILE"
 }
 
