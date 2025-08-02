@@ -67,8 +67,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=$SCRIPT_DEST
-StandardOutput=append:$LOG_FILE
-StandardError=append:$LOG_FILE
+StandardOutput=file:$LOG_FILE
+StandardError=file:$LOG_FILE
 EOF
     log "🛠️  Generado unit file $SERVICE_SRC"
   fi
@@ -121,6 +121,7 @@ install -Dm644 "$SERVICE_SRC" "$SERVICE_DEST"
 install -Dm644 "$TIMER_SRC"   "$TIMER_DEST"
 
 log "🔄 Recargando systemd y activando timer"
+systemctl daemon-reexec
 systemctl daemon-reload
 systemctl enable --now cloudflare-ddns.timer
 
