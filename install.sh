@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh – Cloudflare-DDNS + systemd (distros RPM/Deb)
+# install.sh – Instalador de Cloudflare-DDNS con systemd (distros RPM/Deb)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -15,7 +15,7 @@ SCRIPT_DEST="/usr/local/bin/update_cloudflare_ip.sh"
 
 ENV_DIR="/etc/cloudflare-ddns"
 ENV_FILE="$ENV_DIR/.env"
-LOG_FILE="/var/log/cloudflare_ddns.log"
+LOG_FILE="/var/log/cloudflare-ddns.log"
 
 SERVICE_SRC="cloudflare-ddns.service"
 TIMER_SRC="cloudflare-ddns.timer"
@@ -29,26 +29,32 @@ install_pkg(){
   local p=$1
   command -v "$p" &>/dev/null && return
   log "📦 Instalando $p …"
-  if   command -v dnf &>/dev/null;      then dnf  -y install "$p"
-  elif command -v yum &>/dev/null;      then yum  -y install "$p"
+  if   command -v dnf &>/dev/null;      then dnf -y install "$p"
+  elif command -v yum &>/dev/null;      then yum -y install "$p"
   elif command -v apt-get &>/dev/null;  then apt-get -y install "$p"
   else log "❌ Gestor de paquetes no soportado"; exit 1; fi
 }
 
 for bin in curl jq; do install_pkg "$bin"; done
 
-# ─────────── 4. Ficheros fuente presentes ──────────────────
+# ─────────── 4. Validar archivos fuente ─────────────────────
 for f in "$SCRIPT_SRC" "$SERVICE_SRC" "$TIMER_SRC"; do
-  [[ -f $f ]] || { log "❌ Falta $f"; exit 1; }
+  if [[ ! -f $f ]]; then
+    log "❌ Falta el archivo fuente requerido: $f"
+    exit 1
+  fi
 done
 
-# ─────────── 5. Instalar binario & config ──────────────────
-install -Dm750 "$SCRIPT_SRC"  "$SCRIPT_DEST"
+# ─────────── 5. Instalar binario & configuración ────────────
+log "🚀 Instalando script de actualización → $SCRIPT_DEST"
+install -Dm750 "$SCRIPT_SRC" "$SCRIPT_DEST"
 
-install -d  -m700 "$ENV_DIR"
+log "📁 Creando directorio $ENV_DIR"
+install -d -m700 "$ENV_DIR"
+
 if [[ ! -f $ENV_FILE ]]; then
-  log "📝 Creando $ENV_FILE (edítalo)…"
-  cat >"$ENV_FILE" <<EOF
+  log "📝 Generando archivo .env (recuerda editarlo)"
+  cat > "$ENV_FILE" <<EOF
 CF_API_TOKEN=
 ZONE_NAME=socialdevs.site
 RECORD_NAMES=socialdevs.site,public.socialdevs.site
@@ -56,32 +62,39 @@ EOF
   chmod 600 "$ENV_FILE"
 fi
 
+log "📄 Creando log en $LOG_FILE"
 install -Dm644 /dev/null "$LOG_FILE"
 
-# ─────────── 6. Unidades systemd ───────────────────────────
+# ─────────── 6. Instalar servicios systemd ──────────────────
+log "⚙️ Instalando unidades systemd"
 install -Dm644 "$SERVICE_SRC" "$SERVICE_DEST"
-install -Dm644 "$TIMER_SRC"   "$TIMER_DEST"
+install -Dm644 "$TIMER_SRC" "$TIMER_DEST"
 
-# Verificación post-copia
+# ─────────── 7. Validar instalación systemd ─────────────────
 for f in "$SERVICE_DEST" "$TIMER_DEST"; do
-  [[ -f $f ]] || { log "❌ No se pudo copiar $f"; exit 1; }
+  if [[ ! -f $f ]]; then
+    log "❌ Error: no se pudo instalar correctamente $f"
+    exit 1
+  fi
 done
 
+log "🔄 Recargando systemd y habilitando el temporizador"
+systemctl daemon-reexec
 systemctl daemon-reload
 systemctl enable --now cloudflare-ddns.timer
 
-log "✅ Instalación completada."
+log "✅ Instalación completada correctamente."
 
 cat <<EOF
 
 👉  Edita tus credenciales:
-   nano $ENV_FILE
+   sudo nano $ENV_FILE
 
-🧪 Comprueba:
+🧪 Comprueba servicios:
    systemctl status cloudflare-ddns.timer
    systemctl status cloudflare-ddns.service
 
-📊 Logs:
+📊 Logs en tiempo real:
    journalctl -u cloudflare-ddns.service -n 50 --no-pager
    tail -f $LOG_FILE
 EOF
