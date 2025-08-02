@@ -34,7 +34,7 @@ cd cloudflare-ddns
 ## 🔄 Paso 3: Instalación automática con install.sh (RECOMENDADO)
 
 ```bash
-chmod +x install.sh
+sudo chmod +x install.sh
 sudo ./install.sh
 ```
 

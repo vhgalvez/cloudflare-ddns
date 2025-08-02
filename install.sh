@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# install.sh – Instalador / configurador de Cloudflare-DDNS con systemd
-# Probado en Fedora / RHEL / Rocky / Alma Linux, Debian / Ubuntu y derivados.
-# ------------------------------------------------------------------------------
+# install.sh – Instalador de Cloudflare-DDNS con systemd
+# Compatible con Fedora / RHEL / Rocky / Alma, Debian / Ubuntu y derivados
+# -----------------------------------------------------------------------------
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# ========= VARIABLES GLOBALES ==================================================
+# ────────────── RUTAS ────────────────────────────────────────────────────────
 readonly SCRIPT_SRC="update_cloudflare_ip.sh"
 readonly SCRIPT_DEST="/usr/local/bin/update_cloudflare_ip.sh"
 
@@ -17,35 +17,32 @@ readonly LOG_FILE="/var/log/cloudflare-ddns.log"
 
 readonly SERVICE_SRC="cloudflare-ddns.service"
 readonly TIMER_SRC="cloudflare-ddns.timer"
-readonly SERVICE_FILE="/etc/systemd/system/cloudflare-ddns.service"
-readonly TIMER_FILE="/etc/systemd/system/cloudflare-ddns.timer"
+readonly SERVICE_DEST="/etc/systemd/system/cloudflare-ddns.service"
+readonly TIMER_DEST="/etc/systemd/system/cloudflare-ddns.timer"
 
-# Comando sudo (vacío si ya somos root)
-SUDO=''
+# ────────────── UTILIDADES ───────────────────────────────────────────────────
+SUDO=''                   # Añadimos sudo solo si no somos root
 if [[ $EUID -ne 0 ]]; then
-  if ! command -v sudo &>/dev/null; then
-    echo "❌ Este instalador requiere sudo o ejecutarse como root." >&2
-    exit 1
-  fi
+  command -v sudo   >/dev/null || { echo "❌ Se necesita sudo"; exit 1; }
   SUDO='sudo'
 fi
 
-# ========= FUNCIONES AUXILIARES ===============================================
-log() {  printf '[%(%F %T)T] %b\n' -1 "$*"; }
+log() { printf '[%(%F %T)T] %b\n' -1 "$*"; }
 
 install_pkg() {
   local pkg=$1
-  if ! command -v "$pkg" &>/dev/null; then
-    log "📥 Instalando dependencias ($pkg)…"
-    if   command -v dnf  &>/dev/null; then $SUDO dnf  -y install "$pkg"
-    elif command -v yum  &>/dev/null; then $SUDO yum  -y install "$pkg"
-    elif command -v apt  &>/dev/null; then $SUDO apt-get -y install "$pkg"
-    else
-      log "❌ Gestor de paquetes no soportado"; exit 1
-    fi
+  command -v "$pkg" &>/dev/null && return   # ya instalado
+  log "📥 Instalando dependencia: $pkg …"
+  if   command -v dnf  &>/dev/null; then $SUDO dnf  -y install "$pkg"
+  elif command -v yum  &>/dev/null; then $SUDO yum  -y install "$pkg"
+  elif command -v apt  &>/dev/null; then $SUDO apt -y  install "$pkg"
+  elif command -v apt-get &>/dev/null; then $SUDO apt-get -y install "$pkg"
+  else
+    log "❌ No se detectó un gestor de paquetes soportado"; exit 1
   fi
 }
 
+# ────────────── PASO 1 – Verificar fuentes ───────────────────────────────────
 validate_sources() {
   log "🔍 Verificando archivos locales…"
   for f in "$SCRIPT_SRC" "$SERVICE_SRC" "$TIMER_SRC"; do
@@ -53,17 +50,19 @@ validate_sources() {
   done
 }
 
+# ────────────── PASO 2 – Copiar script ───────────────────────────────────────
 copy_script() {
   log "🚀 Copiando $SCRIPT_SRC → $SCRIPT_DEST"
   $SUDO install -Dm750 "$SCRIPT_SRC" "$SCRIPT_DEST"
 }
 
+# ────────────── PASO 3 – Preparar .env ───────────────────────────────────────
 prepare_env() {
-  log "📂 Creando directorio de configuración $ENV_DIR"
+  log "📂 Creando directorio $ENV_DIR"
   $SUDO install -d -m 700 "$ENV_DIR"
 
   if [[ ! -f $ENV_FILE ]]; then
-    log "📝 Generando $ENV_FILE (edítalo después)…"
+    log "📝 Generando $ENV_FILE (recuerda editarlo)…"
     $SUDO tee "$ENV_FILE" >/dev/null <<EOF
 CF_API_TOKEN=
 ZONE_NAME=socialdevs.site
@@ -73,41 +72,36 @@ EOF
   fi
 }
 
+# ────────────── PASO 4 – Preparar log ────────────────────────────────────────
 prepare_log() {
   log "📄 Creando log $LOG_FILE"
   $SUDO install -Dm644 /dev/null "$LOG_FILE"
 }
 
+# ────────────── PASO 5 – Instalar unidades systemd ───────────────────────────
 install_units() {
   log "⚙️  Instalando unidades systemd…"
-  $SUDO install -Dm644 "$SERVICE_SRC" "$SERVICE_FILE"
-  $SUDO install -Dm644 "$TIMER_SRC"   "$TIMER_FILE"
+  $SUDO install -Dm644 "$SERVICE_SRC" "$SERVICE_DEST"
+  $SUDO install -Dm644 "$TIMER_SRC"   "$TIMER_DEST"
 }
 
+# ────────────── PASO 6 – Recargar y habilitar ────────────────────────────────
 enable_systemd() {
   log "🔄 Recargando systemd y habilitando timer…"
   $SUDO systemctl daemon-reload
   $SUDO systemctl enable --now cloudflare-ddns.timer
 }
 
-# ========= MAIN ===============================================================
+# ────────────── MAIN ─────────────────────────────────────────────────────────
 main() {
-  # 1. Dependencias básicas
-  for bin in curl jq; do install_pkg "$bin"; done
-
-  # 2. Archivos presentes
+  for pkg in curl jq; do install_pkg "$pkg"; done
   validate_sources
-
-  # 3. Copiar recursos al sistema
   copy_script
   prepare_env
   prepare_log
   install_units
-
-  # 4. Activar servicio
   enable_systemd
 
-  # 5. Mensaje final
   log "✅ Instalación completada con éxito."
   cat <<EOF
 
