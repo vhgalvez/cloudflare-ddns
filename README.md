@@ -210,6 +210,15 @@ sudo rm /var/log/cloudflare-ddns.log
 sudo systemctl daemon-reload
 ```
 
+
+sudo ./uninstall.sh
+export CF_API_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxx"
+chmod +x update_cloudflare_ip.sh
+sudo -E ./install.sh
+sudo systemctl start cloudflare-ddns.service
+
+
+
 ## 🔐 Seguridad
 
 - `.env` contiene el token API → protegido con permisos 600.

@@ -43,12 +43,13 @@ need_pkg() {
 for p in curl jq; do need_pkg "$p"; done
 
 # validar updater ------------------------------------------------------------
-[[ -x "$SCRIPT_SRC" ]] || { log "❌ $SCRIPT_SRC no es ejecutable"; exit 1; }
+[[ -f "$SCRIPT_SRC" ]] || { log "❌ $SCRIPT_SRC no encontrado"; exit 1; }
 grep -q "Cloudflare" "$SCRIPT_SRC" || { log "❌ El updater no parece válido"; exit 1; }
 
 # instalar archivos ----------------------------------------------------------
 log "📥 Instalando script → $SCRIPT_DEST"
 install -Dm755 "$SCRIPT_SRC" "$SCRIPT_DEST"
+chmod +x "$SCRIPT_DEST"  # 🔧 Corrección explícita
 
 log "📄 Instalando unidad systemd"
 install -Dm644 "$SERVICE_SRC" "$SERVICE_DEST"
@@ -103,3 +104,5 @@ cat <<EOF
    journalctl -u cloudflare-ddns.service -n 50 --no-pager
    tail -f $LOG_FILE
 EOF
+# fin del script -------------------------------------------------------------
+exit 0
