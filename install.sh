@@ -54,27 +54,27 @@ for b in curl jq; do need_pkg "$b"; done
 [[ -f $SCRIPT_SRC ]] || { log "❌ Falta $SCRIPT_SRC"; exit 1; }
 
 ###############################################################################
-# ░░ 3. Autogenerar units si no existen en disco ░░
+# ░░ 3. Autogenerar unit files si no existen ░░
 ###############################################################################
 generate_unit_files(){
   if [[ ! -f $SERVICE_SRC ]]; then
-cat > "$SERVICE_SRC" <<'EOF'
+cat > "$SERVICE_SRC" <<EOF
 [Unit]
-Description=Cloudflare DDNS actualizador de IP pública
+Description=Cloudflare DDNS – actualizador de IP pública
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/update_cloudflare_ip.sh
-StandardOutput=append:/var/log/cloudflare_ddns.log
-StandardError=append:/var/log/cloudflare_ddns.log
+ExecStart=$SCRIPT_DEST
+StandardOutput=append:$LOG_FILE
+StandardError=append:$LOG_FILE
 EOF
     log "🛠️  Generado unit file $SERVICE_SRC"
   fi
 
   if [[ ! -f $TIMER_SRC ]]; then
-cat > "$TIMER_SRC" <<'EOF'
+cat > "$TIMER_SRC" <<EOF
 [Unit]
 Description=Ejecutar Cloudflare DDNS cada 5 minutos
 
@@ -114,21 +114,18 @@ log "📄 Asegurando log en $LOG_FILE"
 install -Dm644 /dev/null "$LOG_FILE"
 
 ###############################################################################
-# ░░ 5. Copiar units a /etc/systemd/system ░░
+# ░░ 5. Copiar units a systemd y habilitar ░░
 ###############################################################################
 log "⚙️  Instalando units systemd"
 install -Dm644 "$SERVICE_SRC" "$SERVICE_DEST"
 install -Dm644 "$TIMER_SRC"   "$TIMER_DEST"
 
-###############################################################################
-# ░░ 6. Recargar y habilitar ░░
-###############################################################################
 log "🔄 Recargando systemd y activando timer"
 systemctl daemon-reload
 systemctl enable --now cloudflare-ddns.timer
 
 ###############################################################################
-# ░░ 7. Fin ░░
+# ░░ 6. Fin ░░
 ###############################################################################
 log "✅ Instalación completada con éxito."
 
@@ -145,5 +142,5 @@ cat <<EOF
 
 ▶️ Logs:
    journalctl -u cloudflare-ddns.service -n 50 --no-pager
-   tail -F /var/log/cloudflare_ddns.log
+   tail -F $LOG_FILE
 EOF
