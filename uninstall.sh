@@ -1,91 +1,84 @@
-#!/bin/bash
-
-# uninstall.sh — Desinstala Cloudflare DDNS de forma segura
-# Autor: @vhgalvez
-# Estilo: programación funcional con validación fuerte
+#!/usr/bin/env bash
+# uninstall.sh — Desinstalador seguro de Cloudflare-DDNS
+# Autor: @vhgalvez ─ Licencia MIT
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# === Rutas protegidas ===
-readonly SCRIPT="/usr/local/bin/update_cloudflare_ip.sh"
-readonly ENV_FILE="/etc/cloudflare-ddns/.env"
+###############################################################################
+# 1. Elevar privilegios si no somos root
+###############################################################################
+if [[ $EUID -ne 0 ]]; then
+  exec sudo -E bash "$0" "$@"       # heredamos vars + args
+fi
+
+###############################################################################
+# 2. Rutas controladas
+###############################################################################
+readonly SCRIPT_FILE="/usr/local/bin/update_cloudflare_ip.sh"
+
 readonly ENV_DIR="/etc/cloudflare-ddns"
+readonly ENV_FILE="$ENV_DIR/.env"
+
 readonly LOG_FILE="/var/log/cloudflare-ddns.log"
+
 readonly SERVICE_FILE="/etc/systemd/system/cloudflare-ddns.service"
 readonly TIMER_FILE="/etc/systemd/system/cloudflare-ddns.timer"
+readonly TIMER_WANTS_LINK="/etc/systemd/system/timers.target.wants/cloudflare-ddns.timer"
 
-# === Función de log con timestamp ===
-log() {
-    local now
-    now=$(date '+%Y-%m-%d %H:%M:%S')
-    echo "[$now] $1"
-}
+###############################################################################
+# 3. Utilidades
+###############################################################################
+log() { printf '[%(%F %T)T] %b\n' -1 "$*"; }
 
-# === Validar ruta contra un prefijo seguro ===
+# Acepta tanto prefijo con / final como sin él
 validate_path() {
-    local path="$1"
-    local prefix="$2"
-    if [[ "$path" != "$prefix"* ]]; then
-        log "❌ ERROR: Ruta fuera de ubicación segura: $path (esperado: $prefix)"
-        exit 1
-    fi
+  local path=$1
+  local prefix=${2%/}          # quitamos / final si existe
+  if [[ "${path}" != "$prefix"* ]]; then
+    log "❌ ERROR: Ruta fuera de ubicación segura → $path  (esperada bajo $prefix)"
+    exit 1
+  fi
 }
 
-# === Detener servicios systemd sin errores fatales ===
-stop_services() {
-    log "⛔ Deteniendo temporizador y servicio systemd..."
-    systemctl disable --now cloudflare-ddns.timer >/dev/null 2>&1 || true
-    systemctl stop cloudflare-ddns.service >/dev/null 2>&1 || true
+safe_rm() {            # $1 -> archivo,  $2 -> prefijo permitido
+  local file=$1;  local pref=$2
+  validate_path "$file" "$pref"
+  [[ -e $file ]] && { log "🗑️  Eliminando $file"; rm -f -- "$file"; }
 }
 
-# === Eliminar archivo si existe (con validación previa) ===
-safe_remove_file() {
-    local file="$1"
-    local expected_prefix="$2"
-
-    validate_path "$file" "$expected_prefix"
-    if [[ -f "$file" ]]; then
-        log "🗑️ Eliminando archivo: $file"
-        rm -v "$file"
-    fi
-}
-
-# === Eliminar directorio si está vacío ===
-safe_remove_dir() {
-    local dir="$1"
-    local expected_prefix="$2"
-
-    validate_path "$dir" "$expected_prefix"
-    if [[ -d "$dir" ]]; then
-        rmdir "$dir" 2>/dev/null && log "📁 Directorio eliminado: $dir" || log "ℹ️  Directorio $dir no está vacío, no se elimina."
-    fi
-}
-
-# === Recargar systemd ===
-reload_systemd() {
-    log "🔄 Recargando systemd..."
-    systemctl daemon-reexec
-    systemctl daemon-reload
-}
-
-# === Función principal ===
+###############################################################################
+# 4. Desinstalación
+###############################################################################
 main() {
-    log "🧹 Iniciando desinstalación segura de Cloudflare DDNS..."
+  log "🧹 Iniciando desinstalación de Cloudflare-DDNS…"
 
-    stop_services
+  # 4.1 Parar/Deshabilitar unidades (ignorar errores si ya no existen)
+  log "⛔ Deteniendo unidades systemd…"
+  systemctl disable --now cloudflare-ddns.timer  >/dev/null 2>&1 || true
+  systemctl stop    cloudflare-ddns.service      >/dev/null 2>&1 || true
 
-    safe_remove_file "$SCRIPT" "/usr/local/bin/"
-    safe_remove_file "$ENV_FILE" "/etc/cloudflare-ddns/"
-    safe_remove_file "$LOG_FILE" "/var/log/"
-    safe_remove_file "$SERVICE_FILE" "/etc/systemd/system/"
-    safe_remove_file "$TIMER_FILE" "/etc/systemd/system/"
-    safe_remove_dir "$ENV_DIR" "/etc/cloudflare-ddns/"
+  # 4.2 Borrar archivos
+  safe_rm "$SCRIPT_FILE"   "/usr/local/bin"
+  safe_rm "$ENV_FILE"      "$ENV_DIR"
+  safe_rm "$LOG_FILE"      "/var/log"
+  safe_rm "$SERVICE_FILE"  "/etc/systemd/system"
+  safe_rm "$TIMER_FILE"    "/etc/systemd/system"
+  safe_rm "$TIMER_WANTS_LINK" "/etc/systemd/system/timers.target.wants"
 
-    reload_systemd
+  # 4.3 Eliminar directorio de configuración si quedó vacío
+  if [[ -d $ENV_DIR && -z $(ls -A "$ENV_DIR") ]]; then
+    log "📁 Eliminando directorio vacío $ENV_DIR"
+    rmdir --ignore-fail-on-non-empty "$ENV_DIR"
+  fi
 
-    log "✅ Cloudflare DDNS ha sido desinstalado con seguridad y sin afectar el sistema."
+  # 4.4 Recargar systemd
+  log "🔄 Recargando daemon systemd…"
+  systemctl daemon-reload
+  systemctl reset-failed cloudflare-ddns.service >/dev/null 2>&1 || true
+
+  log "✅ Cloudflare-DDNS desinstalado con éxito."
 }
 
-main
+main "$@"
 exit 0
