@@ -34,6 +34,11 @@ cd cloudflare-ddns
 ## 🔄 Paso 3: Instalación automática con install.sh (RECOMENDADO)
 
 ```bash
+sudo export CF_API_TOKEN="yTuTokenSegur0_234df23"
+```
+
+
+```bash
 sudo chmod +x install.sh
 sudo ./install.sh
 ```
@@ -183,8 +188,11 @@ curl -s -X GET "https://api.cloudflare.com/client/v4/zones/TU_ZONE_ID/dns_record
 
 ## 🧽 Desinstalación segura (recomendada)
 
+
+
+
 ```bash
-chmod +x uninstall.sh
+sudo chmod +x uninstall.sh
 sudo ./uninstall.sh
 ```
 
