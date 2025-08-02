@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# install.sh – Instalador de Cloudflare-DDNS con systemd (distros RPM/Deb)
+# install.sh — Instalador auto-contenedor de Cloudflare-DDNS (systemd)
+# Compatible con Fedora / RHEL / Rocky / Alma / Debian / Ubuntu
 
 set -euo pipefail
 IFS=$'\n\t'
 
-# ─────────── CONFIGURACIÓN AUTOMÁTICA OPCIONAL ────────────
-# Puedes exportar CF_API_TOKEN antes de ejecutar este script
-# Ejemplo:
-#   export CF_API_TOKEN="TU_TOKEN_AQUI"
-#   ./install.sh
-
-: "${CF_API_TOKEN:=}"   # Vacío por defecto si no se exporta
+###############################################################################
+# ░░ Configuración opcional vía variable de entorno ░░
+###############################################################################
+: "${CF_API_TOKEN:=}"          # token opcional export CF_API_TOKEN="xxx"
 DEFAULT_ZONE="socialdevs.site"
 DEFAULT_RECORDS="socialdevs.site,public.socialdevs.site"
 
-# ─────────── 1. Elevar privilegios una sola vez ────────────
-if [[ $EUID -ne 0 ]]; then
-  exec sudo -E bash "$0" "$@"
-fi
+###############################################################################
+# ░░ Escalada de privilegios una sola vez ░░
+###############################################################################
+if [[ $EUID -ne 0 ]]; then exec sudo -E bash "$0" "$@"; fi
 
-# ─────────── 2. Rutas de trabajo ───────────────────────────
+###############################################################################
+# ░░ Rutas ░░
+###############################################################################
 SCRIPT_SRC="update_cloudflare_ip.sh"
 SCRIPT_DEST="/usr/local/bin/update_cloudflare_ip.sh"
 
@@ -34,33 +34,74 @@ TIMER_DEST="/etc/systemd/system/cloudflare-ddns.timer"
 
 log(){ printf '[%(%F %T)T] %b\n' -1 "$*"; }
 
-# ─────────── 3. Dependencias mínimas ───────────────────────
-install_pkg(){
+###############################################################################
+# ░░ 1. Dependencias mínimas ░░
+###############################################################################
+need_pkg(){
   local p=$1
   command -v "$p" &>/dev/null && return
-  log "📦 Instalando $p …"
-  if   command -v dnf &>/dev/null;      then dnf -y install "$p"
-  elif command -v yum &>/dev/null;      then yum -y install "$p"
+  log "📦 Instalando dependencia: $p"
+  if   command -v dnf &>/dev/null;      then dnf  -y install "$p"
+  elif command -v yum &>/dev/null;      then yum  -y install "$p"
   elif command -v apt-get &>/dev/null;  then apt-get -y install "$p"
-  else log "❌ Gestor de paquetes no soportado"; exit 1; fi
+  else log "❌ No se detecta gestor de paquetes soportado"; exit 1; fi
 }
+for b in curl jq; do need_pkg "$b"; done
 
-for bin in curl jq; do install_pkg "$bin"; done
+###############################################################################
+# ░░ 2. Verificar script principal ░░
+###############################################################################
+[[ -f $SCRIPT_SRC ]] || { log "❌ Falta $SCRIPT_SRC"; exit 1; }
 
-# ─────────── 4. Validar archivos fuente ─────────────────────
-for f in "$SCRIPT_SRC" "$SERVICE_SRC" "$TIMER_SRC"; do
-  [[ -f $f ]] || { log "❌ Falta el archivo fuente requerido: $f"; exit 1; }
-done
+###############################################################################
+# ░░ 3. Autogenerar units si no existen en disco ░░
+###############################################################################
+generate_unit_files(){
+  if [[ ! -f $SERVICE_SRC ]]; then
+cat > "$SERVICE_SRC" <<'EOF'
+[Unit]
+Description=Cloudflare DDNS actualizador de IP pública
+After=network-online.target
+Wants=network-online.target
 
-# ─────────── 5. Instalar binario & configuración ────────────
-log "🚀 Instalando script de actualización → $SCRIPT_DEST"
-install -Dm750 "$SCRIPT_SRC" "$SCRIPT_DEST"
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/update_cloudflare_ip.sh
+StandardOutput=append:/var/log/cloudflare_ddns.log
+StandardError=append:/var/log/cloudflare_ddns.log
+EOF
+    log "🛠️  Generado unit file $SERVICE_SRC"
+  fi
 
-log "📁 Creando directorio $ENV_DIR"
+  if [[ ! -f $TIMER_SRC ]]; then
+cat > "$TIMER_SRC" <<'EOF'
+[Unit]
+Description=Ejecutar Cloudflare DDNS cada 5 minutos
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=300
+Unit=cloudflare-ddns.service
+
+[Install]
+WantedBy=timers.target
+EOF
+    log "🛠️  Generado unit file $TIMER_SRC"
+  fi
+}
+generate_unit_files
+
+###############################################################################
+# ░░ 4. Instalar binario, .env y log ░░
+###############################################################################
+log "🚀 Instalando $SCRIPT_SRC → $SCRIPT_DEST"
+install -Dm755 "$SCRIPT_SRC" "$SCRIPT_DEST"
+
+log "📂 Preparando $ENV_DIR"
 install -d -m700 "$ENV_DIR"
 
 if [[ ! -f $ENV_FILE ]]; then
-  log "📝 Generando archivo .env (con token automático si está definido)"
+  log "📝 Creando $ENV_FILE (token auto-inyectado si existe)"
   cat > "$ENV_FILE" <<EOF
 CF_API_TOKEN=$CF_API_TOKEN
 ZONE_NAME=$DEFAULT_ZONE
@@ -69,36 +110,40 @@ EOF
   chmod 600 "$ENV_FILE"
 fi
 
-log "📄 Creando log en $LOG_FILE"
+log "📄 Asegurando log en $LOG_FILE"
 install -Dm644 /dev/null "$LOG_FILE"
 
-# ─────────── 6. Instalar servicios systemd ──────────────────
-log "⚙️ Instalando unidades systemd"
+###############################################################################
+# ░░ 5. Copiar units a /etc/systemd/system ░░
+###############################################################################
+log "⚙️  Instalando units systemd"
 install -Dm644 "$SERVICE_SRC" "$SERVICE_DEST"
-install -Dm644 "$TIMER_SRC" "$TIMER_DEST"
+install -Dm644 "$TIMER_SRC"   "$TIMER_DEST"
 
-# ─────────── 7. Validar instalación systemd ─────────────────
-for f in "$SERVICE_DEST" "$TIMER_DEST"; do
-  [[ -f $f ]] || { log "❌ Error: no se pudo instalar correctamente $f"; exit 1; }
-done
-
-log "🔄 Recargando systemd y habilitando el temporizador"
-systemctl daemon-reexec
+###############################################################################
+# ░░ 6. Recargar y habilitar ░░
+###############################################################################
+log "🔄 Recargando systemd y activando timer"
 systemctl daemon-reload
 systemctl enable --now cloudflare-ddns.timer
 
-log "✅ Instalación completada correctamente."
+###############################################################################
+# ░░ 7. Fin ░░
+###############################################################################
+log "✅ Instalación completada con éxito."
 
 cat <<EOF
 
-👉  Credenciales instaladas en: $ENV_FILE
-   CF_API_TOKEN=${CF_API_TOKEN:-(no definido)}
+📌 Archivo de credenciales : $ENV_FILE
+📌 Token cargado           : ${CF_API_TOKEN:-«vacío, edítalo»}
 
-🧪 Comprueba servicios:
+▶️ Estado del timer:
    systemctl status cloudflare-ddns.timer
-   systemctl status cloudflare-ddns.service
 
-📊 Logs en tiempo real:
+▶️ Ejecutar inmediatamente:
+   systemctl start cloudflare-ddns.service
+
+▶️ Logs:
    journalctl -u cloudflare-ddns.service -n 50 --no-pager
-   tail -f $LOG_FILE
+   tail -F /var/log/cloudflare_ddns.log
 EOF

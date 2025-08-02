@@ -40,7 +40,7 @@ sudo export CF_API_TOKEN="yTuTokenSegur0_234df23"
 
 ```bash
 sudo chmod +x install.sh
-sudo ./install.sh
+sudo -E ./install.sh
 ```
 
 Después, edita el archivo `.env` generado:
@@ -128,8 +128,8 @@ sudo systemctl enable --now cloudflare-ddns.timer
 Ver estado del temporizador y servicio:
 
 ```bash
-systemctl status cloudflare-ddns.timer
-systemctl status cloudflare-ddns.service
+sudo systemctl status cloudflare-ddns.timer
+sudo systemctl status cloudflare-ddns.service
 ```
 
 Ver próximas ejecuciones programadas:
