@@ -34,7 +34,7 @@ cd cloudflare-ddns
 ## 🔄 Paso 3: Instalación automática con install.sh (RECOMENDADO)
 
 ```bash
-sudo export CF_API_TOKEN="yTuTokenSegur0_234df23"
+export CF_API_TOKEN="yTuTokenSegur0_234df23"
 ```
 
 
