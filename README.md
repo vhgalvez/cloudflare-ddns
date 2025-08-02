@@ -40,6 +40,23 @@ sudo ./install.sh
 
 Después, edita el archivo `.env` generado:
 
+sudo mkdir -p /etc/cloudflare-ddns
+
+
+```bash
+sudo chmod 700 /etc/cloudflare-ddns
+sudo chown root:root /etc/cloudflare-ddns
+```
+
+```bash
+sudo nano /etc/cloudflare-ddns/.env
+```
+
+```bash
+sudo chmod 600 /etc/cloudflare-ddns/.env
+sudo chown root:root /etc/cloudflare-ddns/.env
+```
+
 ```bash
 sudo nano /etc/cloudflare-ddns/.env
 ```
