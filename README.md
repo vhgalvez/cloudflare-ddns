@@ -217,7 +217,8 @@ chmod +x update_cloudflare_ip.sh
 sudo -E ./install.sh
 sudo systemctl start cloudflare-ddns.service
 
-
+sudo /usr/local/bin/update_cloudflare_ip.sh
+sudo systemctl start cloudflare-ddns.service
 
 ## 🔐 Seguridad
 
