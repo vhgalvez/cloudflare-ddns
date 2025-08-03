@@ -39,7 +39,7 @@ IPV6=$(curl -6s https://ifconfig.co/ip 2>/dev/null || true)
 # ░░ 2. Obtener ID de zona ░░
 ###############################################################################
 ZONE_ID=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones?name=$ZONE_NAME&status=active&match=name" |
+  "https://api.cloudflare.com/client/v4/zones?name=$ZONE_NAME&status=active&match=all" |
   jq -r '.result[0].id')
 
 [[ $ZONE_ID != null && -n $ZONE_ID ]] || { log "❌ Zona no encontrada → $ZONE_NAME"; exit 1; }
@@ -58,7 +58,7 @@ for HOST in "${HOSTS[@]}"; do
 
     # 3.1 Consultar el registro exacto
     RECORD_JSON=$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=$TYPE&name=$HOST&match=name&per_page=1")
+      "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=$TYPE&name=$HOST&match=all&per_page=1")
 
     SUCCESS=$(echo "$RECORD_JSON" | jq -r '.success')
 
@@ -114,6 +114,7 @@ for HOST in "${HOSTS[@]}"; do
     fi
   done
 done
+
 ###############################################################################
 # ░░ Fin del script ░░
 ###############################################################################

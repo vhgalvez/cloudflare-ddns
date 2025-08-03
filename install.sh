@@ -157,9 +157,14 @@ Log del script : $LOG_FILE
 
 Comandos útiles
 ───────────────
+
 sudo systemctl status cloudflare-ddns.service
 sudo journalctl -u cloudflare-ddns.service -n 50 --no-pager
 sudo systemctl list-timers --all | grep cloudflare
+
+sudo systemctl status cloudflare-ddns.timer
+sudo systemctl status cloudflare-ddns.service
+
 EOF
 
 exit 0
