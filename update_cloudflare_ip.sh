@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Actualiza registros A/AAAA en Cloudflare ― NO borra nada
+# update_cloudflare_ip.sh — Cloudflare-DDNS + systemd                    
+# © @vhgalvez · MIT
+# Requiere: curl, jq
+
+
 set -euo pipefail
 IFS=$'\n\t'
 
