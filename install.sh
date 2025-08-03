@@ -53,6 +53,10 @@ for p in curl jq; do need_pkg "$p"; done
 # ░░ 3. Validaciones previas ░░
 ###############################################################################
 [[ -f $SRC_UPDATE ]]  || die "Falta $SRC_UPDATE"
+
+# ✅ Forzar permisos de ejecución por si vienen sin chmod
+chmod +x "$SRC_UPDATE"
+
 [[ -x $SRC_UPDATE ]]  || die "$SRC_UPDATE no es ejecutable"
 
 ###############################################################################
@@ -159,4 +163,6 @@ sudo systemctl list-timers --all | grep cloudflare
 EOF
 
 exit 0
+###############################################################################
+# ░░ Fin del script ░░
 ###############################################################################
