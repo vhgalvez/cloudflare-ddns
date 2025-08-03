@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# install.sh — Cloudflare-DDNS + systemd                    © @vhgalvez · MIT
+# install.sh — Cloudflare-DDNS + systemd 
+# © @vhgalvez · MIT
+# Requiere: curl, jq
 
 set -euo pipefail
 IFS=$'\n\t'
