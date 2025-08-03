@@ -363,6 +363,23 @@ graph TD
 
 ---
 
+
+📌 Cómo usarlos
+Bootstrap inicial (una sola vez):
+
+bash
+Copiar
+Editar
+sudo chmod +x bootstrap_dns.sh
+sudo ./bootstrap_dns.sh
+Chequeo / reparación cuando lo necesites:
+
+bash
+Copiar
+Editar
+sudo chmod +x check_and_repair_dns.sh
+sudo ./check_and_repair_dns.sh
+
 ## 👤 Autor y Licencia
 
 - **Autor:** Victor Galvez (@vhgalvez)
