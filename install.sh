@@ -5,11 +5,11 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-: "${CF_API_TOKEN:=}"                       # Permite exportar el token antes de instalar
+: "${CF_API_TOKEN:=}"
 DEFAULT_ZONE="socialdevs.site"
 DEFAULT_RECORDS="socialdevs.site,public.socialdevs.site"
 
-# ───────────────────────────  Rutas  ───────────────────────────
+# ──────────────── Rutas ────────────────
 ROOT_DIR="$(cd -- "$(dirname "$0")" && pwd)"
 
 SRC_UPDATE="$ROOT_DIR/update_cloudflare_ip.sh"
@@ -26,33 +26,39 @@ LOG_FILE="/var/log/cloudflare-ddns.log"
 
 log() { printf '[%(%F %T)T] %b\n' -1 "$*"; }
 
-# ─────────────────────  Escalada de privilegios  ─────────────────────
+# ───── Escalada ─────
 [[ $EUID -eq 0 ]] || exec sudo -E -- "$0" "$@"
 
-# ─────────────────────  Dependencias mínimas  ────────────────────────
+# ───── Dependencias ─────
 for pkg in curl jq; do
   command -v "$pkg" &>/dev/null && continue
   log "📦 Instalando $pkg…"
-  if   command -v dnf  &>/dev/null; then dnf  -y install "$pkg"
-  elif command -v yum  &>/dev/null; then yum  -y install "$pkg"
+  if command -v dnf &>/dev/null; then dnf -y install "$pkg"
+  elif command -v yum &>/dev/null; then yum -y install "$pkg"
   elif command -v apt-get &>/dev/null; then apt-get -y install "$pkg"
   else log "❌ Gestor de paquetes no soportado"; exit 1; fi
 done
 
-# ─────────────────────  Validaciones previas  ────────────────────────
-[[ -f $SRC_UPDATE  ]] || { log "❌ Falta $SRC_UPDATE";  exit 1; }
+# ───── Validación de archivos ─────
+[[ -f $SRC_UPDATE  ]] || { log "❌ Falta $SRC_UPDATE"; exit 1; }
 [[ -f $SRC_SERVICE ]] || { log "❌ Falta $SRC_SERVICE"; exit 1; }
-[[ -f $SRC_TIMER   ]] || { log "❌ Falta $SRC_TIMER";   exit 1; }
+[[ -f $SRC_TIMER   ]] || { log "❌ Falta $SRC_TIMER"; exit 1; }
 
-# ─────────────────────  Copia y permisos  ────────────────────────────
-log "🚀 Instalando updater → $BIN_DST"
-install -Dm750 "$SRC_UPDATE" "$BIN_DST"        # setuid root, ejecutable
+# ───── Preliminar: detener y limpiar versiones anteriores ─────
+log "🧹 Eliminando servicios antiguos (si existen)…"
+systemctl disable --now cloudflare-ddns.timer 2>/dev/null || true
+systemctl disable --now cloudflare-ddns.service 2>/dev/null || true
+rm -f "$UNIT_SERVICE_DST" "$UNIT_TIMER_DST"
 
-log "⚙️ Instalando unidades systemd"
+# ───── Copia e instalación ─────
+log "🚀 Copiando $SRC_UPDATE → $BIN_DST"
+install -Dm755 "$SRC_UPDATE" "$BIN_DST"   # PERMISOS 755
+
+log "⚙️ Copiando unidades systemd"
 install -Dm644 "$SRC_SERVICE" "$UNIT_SERVICE_DST"
-install -Dm644 "$SRC_TIMER"   "$UNIT_TIMER_DST"
+install -Dm644 "$SRC_TIMER" "$UNIT_TIMER_DST"
 
-log "📂 Creando directorio cfg → $CFG_DIR"
+log "📂 Creando directorio de configuración → $CFG_DIR"
 install -d -m700 "$CFG_DIR"
 
 if [[ ! -f $ENV_FILE ]]; then
@@ -63,26 +69,30 @@ ZONE_NAME=$DEFAULT_ZONE
 RECORD_NAMES=$DEFAULT_RECORDS
 EOF
   chmod 600 "$ENV_FILE"
+else
+  log "ℹ️ $ENV_FILE ya existe. Conservado."
 fi
 
-log "📄 Asegurando log → $LOG_FILE"
-install -Dm644 /dev/null "$LOG_FILE"           # crea si no existe
+log "📄 Verificando log → $LOG_FILE"
+touch "$LOG_FILE"
+chmod 644 "$LOG_FILE"
+chown root:root "$LOG_FILE"
 
-# ─────────────────────  Ajuste de permisos finales  ──────────────────
-chmod 750   "$BIN_DST"
-chmod 640   "$UNIT_SERVICE_DST" "$UNIT_TIMER_DST"
-chmod 600   "$ENV_FILE"
-chown root:root "$BIN_DST" "$UNIT_SERVICE_DST" "$UNIT_TIMER_DST" "$ENV_FILE"
+# ───── Ajuste final de permisos ─────
+chmod 755 "$BIN_DST"
+chmod 644 "$UNIT_SERVICE_DST" "$UNIT_TIMER_DST"
+chmod 600 "$ENV_FILE"
 
-# ─────────────────────  Recarga y habilitación  ──────────────────────
+# ───── Recarga y habilitación ─────
 log "🔄 Recargando systemd…"
+systemctl daemon-reexec
 systemctl daemon-reload
 
-log "⏱️ Habilitando temporizador + primer disparo"
+log "⏱️ Activando servicio y temporizador"
 systemctl enable --now cloudflare-ddns.timer
-systemctl start  --no-block cloudflare-ddns.service
+systemctl start cloudflare-ddns.service
 
-# ─────────────────────  Resumen  ─────────────────────────────────────
+# ───── Resumen ─────
 log "✅ Instalación completada"
 
 cat <<EOF

@@ -1,82 +1,50 @@
 #!/usr/bin/env bash
-#
-# update_cloudflare_ip.sh – Script para actualizar IP en Cloudflare
-# Autor:  @vhgalvez
-# -----------------------------------------------------------------------------
-
+# Actualiza registros A/AAAA en Cloudflare ― NO borra nada
 set -euo pipefail
 IFS=$'\n\t'
 
-# ========= RUTAS PROTEGIDAS ===================================================
-readonly SCRIPT_FILE="/usr/local/bin/update_cloudflare_ip.sh"
-readonly ENV_DIR="/etc/cloudflare-ddns"
-readonly ENV_FILE="$ENV_DIR/.env"
-readonly LOG_FILE="/var/log/cloudflare-ddns.log"
-readonly SERVICE_FILE="/etc/systemd/system/cloudflare-ddns.service"
-readonly TIMER_FILE="/etc/systemd/system/cloudflare-ddns.timer"
+ENV_FILE="/etc/cloudflare-ddns/.env"
+LOG_FILE="/var/log/cloudflare-ddns.log"
 
-# ========= HELPERS ============================================================
-log() { printf '[%(%F %T)T] %b\n' -1 "$*"; }
+log() { printf '[%(%F %T)T] %b\n' -1 "$*" | tee -a "$LOG_FILE"; }
 
-need_root() {
-  if [[ $EUID -ne 0 ]]; then
-    log "❌ Este script debe ejecutarse como root (o con sudo)."
-    exit 1
+[[ -f "$ENV_FILE" ]] || { log "❌ Falta $ENV_FILE"; exit 1; }
+source "$ENV_FILE"
+
+[[ -n ${CF_API_TOKEN:-} ]]   || { log "❌ CF_API_TOKEN vacío";   exit 1; }
+[[ -n ${ZONE_NAME:-} ]]      || { log "❌ ZONE_NAME vacío";      exit 1; }
+[[ -n ${RECORD_NAMES:-} ]]   || { log "❌ RECORD_NAMES vacío";   exit 1; }
+
+# --- Obtener IP pública actual ---------------------------------------------
+CURRENT_IP="$(curl -s https://1.1.1.1/cdn-cgi/trace | grep ip= | cut -d= -f2)"
+[[ $CURRENT_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || { log "❌ IP pública inválida: $CURRENT_IP"; exit 1; }
+
+# --- ID de zona ------------------------------------------------------------
+ZONE_ID="$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/zones?name=$ZONE_NAME" | jq -r '.result[0].id')"
+[[ $ZONE_ID != null ]] || { log "❌ Zona no encontrada"; exit 1; }
+
+# --- Recorrer registros -----------------------------------------------------
+IFS=',' read -ra HOSTS <<< "$RECORD_NAMES"
+for HOST in "${HOSTS[@]}"; do
+  RECORD_JSON="$(curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
+     "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$HOST")"
+
+  REC_ID="$(echo "$RECORD_JSON" | jq -r '.result[0].id')"
+  OLD_IP="$(echo "$RECORD_JSON"  | jq -r '.result[0].content')"
+
+  if [[ "$CURRENT_IP" == "$OLD_IP" ]]; then
+      log "➡️  $HOST ya apunta a $CURRENT_IP (sin cambios)"
+      continue
   fi
-}
 
-# Acepta coincidencia exacta o que empiece por el prefijo
-validate_path() {
-  local p="$1" pref="$2"
-  [[ "$p" == "$pref"* ]] || { log "❌ Ruta fuera de ubicación segura: $p (esperado prefijo: $pref)"; exit 1; }
-}
-
-safe_rm() {
-  local file="$1" safe_prefix="$2"
-  validate_path "$file" "$safe_prefix"
-  [[ -e $file ]] && { log "🗑️  Eliminando $file"; rm -f "$file"; }
-}
-
-safe_rmdir() {
-  local dir="$1" safe_prefix="$2"
-  validate_path "$dir" "$safe_prefix"
-  if [[ -d $dir ]]; then
-    if rmdir "$dir" 2>/dev/null; then
-      log "📁 Directorio eliminado: $dir"
-    else
-      log "ℹ️  $dir no está vacío; conserva contenido del usuario."
-    fi
-  fi
-}
-
-stop_units() {
-  log "⛔ Deteniendo servicio/temporizador (si existen)…"
-  systemctl disable --now cloudflare-ddns.timer 2>/dev/null || true
-  systemctl disable --now cloudflare-ddns.service 2>/dev/null || true
-  systemctl reset-failed cloudflare-ddns.{service,timer} 2>/dev/null || true
-}
-
-reload_systemd() {
-  log "🔄 Recargando configuración de systemd…"
-  systemctl daemon-reload
-}
-
-# ========= MAIN ==============================================================
-main() {
-  need_root
-  log "🧹 Comenzando desinstalación de Cloudflare-DDNS…"
-
-  stop_units
-
-  safe_rm   "$SCRIPT_FILE"  "/usr/local/bin/"
-  safe_rm   "$ENV_FILE"     "$ENV_DIR/"
-  safe_rm   "$LOG_FILE"     "/var/log/"
-  safe_rm   "$SERVICE_FILE" "/etc/systemd/system/"
-  safe_rm   "$TIMER_FILE"   "/etc/systemd/system/"
-  safe_rmdir "$ENV_DIR"     "/etc/cloudflare-ddns"
-
-  reload_systemd
-  log "✅ Cloudflare-DDNS eliminado con éxito."
-}
-
-main "$@"
+  # Actualizar
+  curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$REC_ID" \
+       -H "Authorization: Bearer $CF_API_TOKEN" \
+       -H "Content-Type: application/json" \
+       --data "{\"type\":\"A\",\"name\":\"$HOST\",\"content\":\"$CURRENT_IP\",\"ttl\":300,\"proxied\":false}" \
+    | jq -e '.success' >/dev/null \
+    && log "✅  $HOST actualizado: $OLD_IP → $CURRENT_IP" \
+    || log "❌  Error al actualizar $HOST"
+done
