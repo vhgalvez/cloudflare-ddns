@@ -1,70 +1,63 @@
 #!/usr/bin/env bash
-# install.sh – Instalador auto-contenido de Cloudflare-DDNS (systemd)
-# Autor: @vhgalvez — MIT
+# install.sh — Cloudflare-DDNS + systemd
+# Autor: @vhgalvez · MIT
 
 set -euo pipefail
 IFS=$'\n\t'
-: "${CF_API_TOKEN:=}"
 
-# rutas ----------------------------------------------------------------------
-DIR="$(cd "$(dirname "$0")" && pwd)"
-SCRIPT_SRC="$DIR/update_cloudflare_ip.sh"
-SERVICE_SRC="$DIR/cloudflare-ddns.service"
-TIMER_SRC="$DIR/cloudflare-ddns.timer"
-
-SCRIPT_DEST="/usr/local/bin/update_cloudflare_ip.sh"
-SERVICE_DEST="/etc/systemd/system/cloudflare-ddns.service"
-TIMER_DEST="/etc/systemd/system/cloudflare-ddns.timer"
-
-ENV_DIR="/etc/cloudflare-ddns"
-ENV_FILE="$ENV_DIR/.env"
-LOG_FILE="/var/log/cloudflare-ddns.log"
-
+: "${CF_API_TOKEN:=}"                       # Permite exportar el token antes de instalar
 DEFAULT_ZONE="socialdevs.site"
 DEFAULT_RECORDS="socialdevs.site,public.socialdevs.site"
 
+# ───────────────────────────  Rutas  ───────────────────────────
+ROOT_DIR="$(cd -- "$(dirname "$0")" && pwd)"
+
+SRC_UPDATE="$ROOT_DIR/update_cloudflare_ip.sh"
+SRC_SERVICE="$ROOT_DIR/cloudflare-ddns.service"
+SRC_TIMER="$ROOT_DIR/cloudflare-ddns.timer"
+
+BIN_DST="/usr/local/bin/update_cloudflare_ip.sh"
+UNIT_SERVICE_DST="/etc/systemd/system/cloudflare-ddns.service"
+UNIT_TIMER_DST="/etc/systemd/system/cloudflare-ddns.timer"
+
+CFG_DIR="/etc/cloudflare-ddns"
+ENV_FILE="$CFG_DIR/.env"
+LOG_FILE="/var/log/cloudflare-ddns.log"
+
 log() { printf '[%(%F %T)T] %b\n' -1 "$*"; }
 
-# root -----------------------------------------------------------------------
-[[ $EUID -eq 0 ]] || exec sudo -E "$0" "$@"
+# ─────────────────────  Escalada de privilegios  ─────────────────────
+[[ $EUID -eq 0 ]] || exec sudo -E -- "$0" "$@"
 
-# dependencias ---------------------------------------------------------------
-need_pkg() {
-  local p="$1"
-  if ! command -v "$p" &>/dev/null; then
-    log "📦 Instalando $p"
-    if   command -v dnf &>/dev/null;     then dnf -y install "$p"
-    elif command -v yum &>/dev/null;     then yum -y install "$p"
-    elif command -v apt-get &>/dev/null; then apt-get -y install "$p"
-    else log "❌ No se detecta gestor de paquetes compatible"; exit 1
-    fi
-  fi
-}
-for p in curl jq; do need_pkg "$p"; done
+# ─────────────────────  Dependencias mínimas  ────────────────────────
+for pkg in curl jq; do
+  command -v "$pkg" &>/dev/null && continue
+  log "📦 Instalando $pkg…"
+  if   command -v dnf  &>/dev/null; then dnf  -y install "$pkg"
+  elif command -v yum  &>/dev/null; then yum  -y install "$pkg"
+  elif command -v apt-get &>/dev/null; then apt-get -y install "$pkg"
+  else log "❌ Gestor de paquetes no soportado"; exit 1; fi
+done
 
-# validar updater ------------------------------------------------------------
-[[ -f "$SCRIPT_SRC" ]] || { log "❌ $SCRIPT_SRC no encontrado"; exit 1; }
-grep -q "Cloudflare" "$SCRIPT_SRC" || { log "❌ El updater no parece válido"; exit 1; }
+# ─────────────────────  Validaciones previas  ────────────────────────
+[[ -f $SRC_UPDATE  ]] || { log "❌ Falta $SRC_UPDATE";  exit 1; }
+[[ -f $SRC_SERVICE ]] || { log "❌ Falta $SRC_SERVICE"; exit 1; }
+[[ -f $SRC_TIMER   ]] || { log "❌ Falta $SRC_TIMER";   exit 1; }
 
-# instalar archivos ----------------------------------------------------------
-log "📥 Instalando script → $SCRIPT_DEST"
-install -Dm755 "$SCRIPT_SRC" "$SCRIPT_DEST"
-chmod +x "$SCRIPT_DEST"  # 🔧 Corrección explícita
+# ─────────────────────  Copia y permisos  ────────────────────────────
+log "🚀 Instalando updater → $BIN_DST"
+install -Dm750 "$SRC_UPDATE" "$BIN_DST"        # setuid root, ejecutable
 
-log "📄 Instalando unidad systemd"
-install -Dm644 "$SERVICE_SRC" "$SERVICE_DEST"
-install -Dm644 "$TIMER_SRC"   "$TIMER_DEST"
+log "⚙️ Instalando unidades systemd"
+install -Dm644 "$SRC_SERVICE" "$UNIT_SERVICE_DST"
+install -Dm644 "$SRC_TIMER"   "$UNIT_TIMER_DST"
 
-log "📂 Creando directorio $ENV_DIR"
-install -d -m700 "$ENV_DIR"
-
-if [[ -z "${CF_API_TOKEN}" ]]; then
-  log "⚠️  Token no proporcionado. El archivo .env quedará incompleto."
-fi
+log "📂 Creando directorio cfg → $CFG_DIR"
+install -d -m700 "$CFG_DIR"
 
 if [[ ! -f $ENV_FILE ]]; then
-  log "📝 Generando archivo de entorno $ENV_FILE"
-  cat > "$ENV_FILE" <<EOF
+  log "📝 Generando $ENV_FILE"
+  cat >"$ENV_FILE" <<EOF
 CF_API_TOKEN=$CF_API_TOKEN
 ZONE_NAME=$DEFAULT_ZONE
 RECORD_NAMES=$DEFAULT_RECORDS
@@ -72,37 +65,34 @@ EOF
   chmod 600 "$ENV_FILE"
 fi
 
-log "🗂️  Creando archivo de log $LOG_FILE"
-install -Dm644 /dev/null "$LOG_FILE"
+log "📄 Asegurando log → $LOG_FILE"
+install -Dm644 /dev/null "$LOG_FILE"           # crea si no existe
 
-# habilitar systemd ----------------------------------------------------------
-log "🔄 Recargando systemd y activando timer"
+# ─────────────────────  Ajuste de permisos finales  ──────────────────
+chmod 750   "$BIN_DST"
+chmod 640   "$UNIT_SERVICE_DST" "$UNIT_TIMER_DST"
+chmod 600   "$ENV_FILE"
+chown root:root "$BIN_DST" "$UNIT_SERVICE_DST" "$UNIT_TIMER_DST" "$ENV_FILE"
+
+# ─────────────────────  Recarga y habilitación  ──────────────────────
+log "🔄 Recargando systemd…"
 systemctl daemon-reload
 
-if systemctl enable --now cloudflare-ddns.timer; then
-  log "✅ Timer activado correctamente"
-else
-  log "❌ Fallo al habilitar cloudflare-ddns.timer"
-  exit 1
-fi
+log "⏱️ Habilitando temporizador + primer disparo"
+systemctl enable --now cloudflare-ddns.timer
+systemctl start  --no-block cloudflare-ddns.service
 
-# resumen final --------------------------------------------------------------
-log "✅ Instalación completada correctamente."
+# ─────────────────────  Resumen  ─────────────────────────────────────
+log "✅ Instalación completada"
 
 cat <<EOF
 
-📌 Archivo de credenciales : $ENV_FILE
-📌 Token cargado           : ${CF_API_TOKEN:-"(vacío, edítalo manualmente)"}
+Credenciales   : $ENV_FILE
+Log del script : $LOG_FILE
 
-▶️ Estado del timer:
-   systemctl status cloudflare-ddns.timer
-
-▶️ Ejecutar inmediatamente:
-   sudo systemctl start cloudflare-ddns.service
-
-▶️ Logs:
-   journalctl -u cloudflare-ddns.service -n 50 --no-pager
-   tail -f $LOG_FILE
+Comandos útiles
+───────────────
+sudo systemctl status cloudflare-ddns.service
+sudo journalctl -u cloudflare-ddns.service -n 50 --no-pager
+sudo systemctl list-timers --all | grep cloudflare
 EOF
-# fin del script -------------------------------------------------------------
-exit 0

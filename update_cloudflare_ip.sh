@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# uninstall.sh — Desinstala Cloudflare-DDNS de forma segura
+# update_cloudflare_ip.sh – Script para actualizar IP en Cloudflare
 # Autor:  @vhgalvez
 # -----------------------------------------------------------------------------
 
